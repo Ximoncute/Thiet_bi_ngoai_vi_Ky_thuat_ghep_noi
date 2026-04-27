@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>THIẾT BỊ NGOẠI VI VÀ KỸ THUẬT GHÉP NỐI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.0.3/mqtt.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f3f4f6; margin: 0; padding: 0; overflow: hidden; }
+    .led-pulse { animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .log-scroll { overflow-y: auto; flex: 1; min-height: 0; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body class="h-screen overflow-hidden">
+<div class="h-full flex flex-col p-3 max-w-7xl mx-auto w-full">
+
+  <!-- HEADER -->
+  <div class="text-center mb-2 flex-shrink-0">
+    <h1 class="text-xl font-bold text-indigo-700">THIẾT BỊ NGOẠI VI VÀ KỸ THUẬT GHÉP NỐI</h1>
+    <div class="inline-flex items-center gap-2 mt-1 px-3 py-0.5 bg-white rounded-full shadow text-xs">
+      <div id="mqttLed" class="w-2 h-2 rounded-full bg-gray-400"></div>
+      <span id="mqttText" class="text-gray-600">Đang kiểm tra kết nối...</span>
+      <span class="mx-1 text-gray-300">|</span>
+      <div id="apiLed" class="w-2 h-2 rounded-full bg-gray-400"></div>
+      <span id="apiText" class="text-gray-600">API...</span>
+    </div>
+  </div>
+
+  <!-- 3 THẺ CHÍNH -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2 flex-shrink-0">
+    <div class="bg-white rounded-xl shadow p-3 flex justify-between items-center">
+      <div><p class="text-gray-500 text-sm">Nhiệt độ</p><p id="temp" class="text-3xl font-bold text-orange-600">--°C</p></div>
+      <div class="text-5xl text-orange-300">🌡️</div>
+      <span id="tempBadge" class="px-2 py-1 rounded-full text-xs font-medium bg-gray-100">--</span>
+    </div>
+    <div class="bg-white rounded-xl shadow p-3 flex justify-between items-center">
+      <div><p class="text-gray-500 text-sm">Độ ẩm</p><p id="hum" class="text-3xl font-bold text-blue-600">--%</p></div>
+      <div class="text-5xl text-blue-300">💧</div>
+      <span id="humBadge" class="px-2 py-1 rounded-full text-xs font-medium bg-gray-100">--</span>
+    </div>
+    <div class="bg-white rounded-xl shadow p-2">
+      <p class="text-gray-500 text-xs text-center">Chế độ điều khiển</p>
+      <div class="flex gap-2 mt-1">
+        <button id="autoBtn" onclick="setMode('auto')" class="flex-1 py-2 rounded-lg font-semibold text-sm bg-green-600 text-white">TỰ ĐỘNG</button>
+        <button id="manualBtn" onclick="setMode('manual')" class="flex-1 py-2 rounded-lg font-semibold text-sm bg-gray-600 text-white">THỦ CÔNG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ĐIỀU KHIỂN LED -->
+  <div class="bg-white rounded-xl shadow p-3 mb-2 flex-shrink-0">
+    <h2 class="text-base font-semibold mb-2">ĐIỀU KHIỂN LED QUA MQTT</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="border rounded-lg p-2">
+        <div class="flex justify-between items-center mb-2">
+          <div class="flex items-center gap-2"><div id="led1Led" class="w-3 h-3 rounded-full bg-gray-400"></div><span class="font-medium text-sm">LED ĐỘ ẨM (GPIO 0)</span></div>
+          <span id="led1Text" class="text-sm font-bold text-gray-500">TẮT</span>
+        </div>
+        <div class="flex gap-2"><button id="led1On" onclick="ledOn('hum')" class="flex-1 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white">BẬT</button><button id="led1Off" onclick="ledOff('hum')" class="flex-1 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white">TẮT</button></div>
+      </div>
+      <div class="border rounded-lg p-2">
+        <div class="flex justify-between items-center mb-2">
+          <div class="flex items-center gap-2"><div id="led2Led" class="w-3 h-3 rounded-full bg-gray-400"></div><span class="font-medium text-sm">LED NHIỆT ĐỘ (GPIO 9)</span></div>
+          <span id="led2Text" class="text-sm font-bold text-gray-500">TẮT</span>
+        </div>
+        <div class="flex gap-2"><button id="led2On" onclick="ledOn('temp')" class="flex-1 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white">BẬT</button><button id="led2Off" onclick="ledOff('temp')" class="flex-1 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white">TẮT</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BIỂU ĐỒ -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-2 flex-shrink-0">
+    <div class="bg-white rounded-xl shadow p-2"><h2 class="text-sm font-semibold mb-1">Biểu đồ Nhiệt độ (°C)</h2><canvas id="tempChart" height="120" style="max-height: 130px; width: 100%"></canvas></div>
+    <div class="bg-white rounded-xl shadow p-2"><h2 class="text-sm font-semibold mb-1">Biểu đồ Độ ẩm (%)</h2><canvas id="humChart" height="120" style="max-height: 130px; width: 100%"></canvas></div>
+  </div>
+
+  <!-- LOG -->
+  <div class="bg-white rounded-xl shadow flex flex-col flex-1 min-h-0">
+    <div class="flex justify-between items-center p-2 border-b flex-shrink-0">
+      <h2 class="text-sm font-semibold">Nhật ký hệ thống</h2>
+      <div class="flex gap-2"><button onclick="expCSV()" class="px-3 py-1 text-xs bg-emerald-600 text-white rounded-lg">Xuất CSV</button><button onclick="clearLog()" class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-lg">Xóa log</button></div>
+    </div>
+    <div class="log-scroll">
+      <table class="w-full text-xs">
+        <thead class="bg-gray-100 sticky top-0"><tr><th class="py-2 px-2 text-left">Thời gian</th><th class="py-2 px-2 text-left">Nhiệt độ</th><th class="py-2 px-2 text-left">Độ ẩm</th><th class="py-2 px-2 text-left">LED Độ ẩm</th><th class="py-2 px-2 text-left">LED Nhiệt độ</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== CẤU HÌNH =====
+const API_URL = "http://127.0.0.1:3000/api/latest";
+const MQTT_BROKER = 'ws://broker.emqx.io:8083/mqtt';
+const MQTT_TOPIC_CONTROL = 'esp32/dht11/control';
+const MQTT_TOPIC_STATUS = 'esp32/dht11/status';
+
+// ===== BIẾN TOÀN CỤC =====
+let mqttClient = null;
+let auto = true;
+let currentTemp = 0, currentHum = 0, led1State = false, led2State = false;
+let logs = [];
+let timeLabels = [], tempData = [], humData = [];
+let tempChart, humChart;
+let lastLogTime = 0;
+let pageStartTime = Date.now(); // Thời điểm mở trang web
+let lastRecordId = null;        // ID của bản ghi cuối cùng đã xử lý
+let isCommanding = false;       // Cờ đánh dấu đang gửi lệnh điều khiển
+let commandTimeout = null;
+
+// ===== KHỞI TẠO BIỂU ĐỒ =====
+function initCharts() {
+  tempChart = new Chart(document.getElementById('tempChart'), {
+    type: 'line',
+    data: { labels: timeLabels, datasets: [{ data: tempData, borderColor: '#f97316', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 50 } } }
+  });
+  humChart = new Chart(document.getElementById('humChart'), {
+    type: 'line',
+    data: { labels: timeLabels, datasets: [{ data: humData, borderColor: '#3b82f6', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }
+  });
+}
+
+// ===== KẾT NỐI MQTT (ĐỂ GỬI LỆNH ĐIỀU KHIỂN) =====
+function connectMQTT() {
+  mqttClient = mqtt.connect(MQTT_BROKER, { clientId: 'web_' + Date.now() });
+  
+  mqttClient.on('connect', () => {
+    console.log('✅ MQTT connected to Broker');
+    // Chỉ báo API sẵn sàng, trạng thái Kit sẽ do fetchData quyết định
+  });
+  
+  mqttClient.on('message', (topic, msg) => {
+    try {
+      let d = JSON.parse(msg.toString());
+      if (topic === MQTT_TOPIC_STATUS) {
+        led1State = d.led_hum;
+        led2State = d.led_temp;
+        updateLEDDisplay();
+      }
+    } catch(e) { console.error('MQTT parse error:', e); }
+  });
+  
+  mqttClient.on('error', () => {
+    document.getElementById('mqttLed').className = 'w-2 h-2 rounded-full bg-red-500';
+    document.getElementById('mqttText').innerHTML = 'MQTT lỗi';
+  });
+}
+
+// ===== GỬI LỆNH MQTT =====
+function sendMQTT(command, value) {
+  if (!mqttClient || !mqttClient.connected) {
+    console.warn('MQTT chưa kết nối!');
+    alert('MQTT chưa kết nối, không thể điều khiển!');
+    return;
+  }
+  const payload = JSON.stringify({ command: command, value: value });
+  mqttClient.publish(MQTT_TOPIC_CONTROL, payload);
+  console.log(`📤 Gửi lệnh: ${payload}`);
+}
+
+// ===== LẤY DỮ LIỆU TỪ API =====
+async function fetchData() {
+  try {
+    const response = await fetch(API_URL);
+    const data = await response.json();
+    
+    const now = Date.now();
+    // Chuyển đổi thời gian từ MongoDB (UTC ISO String) sang local timestamp
+    const dataTime = data ? new Date(data.createdAt).getTime() : 0;
+    
+    // Kiểm tra Kit có online không (gửi dữ liệu trong 10 giây qua)
+    const isFresh = data && (now - dataTime < 10000);
+
+    if (!data || !isFresh) {
+      document.getElementById('mqttLed').className = 'w-2 h-2 rounded-full bg-gray-400';
+      document.getElementById('mqttText').innerHTML = 'Kit chưa kết nối';
+      resetDisplay();
+      return;
+    }
+
+    // Nếu Kit đang online
+    document.getElementById('mqttLed').className = 'w-2 h-2 rounded-full bg-green-500';
+    document.getElementById('mqttText').innerHTML = 'Kit sẵn sàng';
+    
+    // Cập nhật dữ liệu từ API (chỉ cập nhật LED nếu không trong quá trình gửi lệnh)
+    currentTemp = data.temperature || 0;
+    currentHum = data.humidity || 0;
+    
+    if (!isCommanding) {
+      if (data.led_hum_state !== undefined) led1State = data.led_hum_state;
+      if (data.led_temp_state !== undefined) led2State = data.led_temp_state;
+      updateLEDDisplay();
+    }
+    
+    updateSensorDisplay();
+    
+    // Chỉ cập nhật biểu đồ và log nếu: 
+    // 1. Đây là bản ghi mới (ID khác lần trước)
+    // 2. Bản ghi này sinh ra SAU KHI mở trang web (tránh load dữ liệu cũ)
+    if (data._id !== lastRecordId && dataTime > pageStartTime) {
+      lastRecordId = data._id;
+      updateChart();
+      addLog();
+    }
+    
+    document.getElementById('apiLed').className = 'w-2 h-2 rounded-full bg-green-500';
+    document.getElementById('apiText').innerHTML = 'API OK';
+    
+  } catch (err) {
+    console.error("Lỗi fetch API:", err);
+    // Cập nhật trạng thái API lỗi
+    document.getElementById('apiLed').className = 'w-2 h-2 rounded-full bg-red-500';
+    document.getElementById('apiText').innerHTML = 'API lỗi';
+    
+    // Nếu lỗi API thì không thể xác định Kit, nên set về Offline
+    document.getElementById('mqttLed').className = 'w-2 h-2 rounded-full bg-gray-400';
+    document.getElementById('mqttText').innerHTML = 'Mất kết nối API';
+    
+    // Xóa dữ liệu trên màn hình để tránh nhầm lẫn
+    resetDisplay();
+  }
+}
+
+// ===== RESET HIỂN THỊ KHI OFFLINE =====
+function resetDisplay() {
+  document.getElementById('temp').innerHTML = '--°C';
+  document.getElementById('hum').innerHTML = '--%';
+  
+  const tb = document.getElementById('tempBadge');
+  const hb = document.getElementById('humBadge');
+  tb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-gray-100';
+  tb.innerText = '--';
+  hb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-gray-100';
+  hb.innerText = '--';
+}
+
+// ===== CẬP NHẬT HIỂN THỊ CẢM BIẾN =====
+function updateSensorDisplay() {
+  document.getElementById('temp').innerHTML = currentTemp.toFixed(1) + '°C';
+  document.getElementById('hum').innerHTML = Math.round(currentHum) + '%';
+  
+  let tb = document.getElementById('tempBadge'), hb = document.getElementById('humBadge');
+  if(currentTemp > 30) { tb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700'; tb.innerText = 'CAO'; }
+  else if(currentTemp > 25) { tb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700'; tb.innerText = 'TRUNG BÌNH'; }
+  else { tb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700'; tb.innerText = 'THẤP'; }
+  
+  if(currentHum > 70) { hb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700'; hb.innerText = 'CAO'; }
+  else if(currentHum > 50) { hb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700'; hb.innerText = 'TRUNG BÌNH'; }
+  else { hb.className = 'px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700'; hb.innerText = 'THẤP'; }
+}
+
+// ===== CẬP NHẬT HIỂN THỊ LED =====
+function updateLEDDisplay() {
+  let l1d = document.getElementById('led1Led'), l1t = document.getElementById('led1Text');
+  let l2d = document.getElementById('led2Led'), l2t = document.getElementById('led2Text');
+  
+  if(led1State) { 
+    l1d.className = 'w-3 h-3 rounded-full bg-green-500 led-pulse'; 
+    l1t.innerHTML = 'BẬT'; 
+    l1t.className = 'text-sm font-bold text-green-600'; 
+  } else { 
+    l1d.className = 'w-3 h-3 rounded-full bg-gray-400'; 
+    l1t.innerHTML = 'TẮT'; 
+    l1t.className = 'text-sm font-bold text-gray-500'; 
+  }
+  
+  if(led2State) { 
+    l2d.className = 'w-3 h-3 rounded-full bg-orange-500 led-pulse'; 
+    l2t.innerHTML = 'BẬT'; 
+    l2t.className = 'text-sm font-bold text-orange-600'; 
+  } else { 
+    l2d.className = 'w-3 h-3 rounded-full bg-gray-400'; 
+    l2t.innerHTML = 'TẮT'; 
+    l2t.className = 'text-sm font-bold text-gray-500'; 
+  }
+}
+
+// ===== CẬP NHẬT BIỂU ĐỒ =====
+function updateChart() {
+  let now = new Date().toLocaleTimeString('vi-VN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  timeLabels.push(now); 
+  tempData.push(currentTemp); 
+  humData.push(currentHum);
+  
+  if(timeLabels.length > 20) { 
+    timeLabels.shift(); 
+    tempData.shift(); 
+    humData.shift(); 
+  }
+  tempChart.update(); 
+  humChart.update();
+}
+
+// ===== THÊM LOG =====
+function addLog() {
+  if(currentTemp === 0 && currentHum === 0) return;
+  let timeStr = new Date().toLocaleString('vi-VN');
+  logs.unshift({ 
+    time: timeStr, 
+    temp: currentTemp.toFixed(1), 
+    hum: Math.round(currentHum), 
+    led1: led1State ? 'BẬT' : 'TẮT', 
+    led2: led2State ? 'BẬT' : 'TẮT' 
+  });
+  if(logs.length > 50) logs.pop();
+  
+  document.getElementById('logBody').innerHTML = logs.map(l => `
+    <tr class="border-b hover:bg-gray-50">
+      <td class="py-2 px-2">${l.time}</td>
+      <td class="py-2 px-2 font-medium text-orange-600">${l.temp}°C</td>
+      <td class="py-2 px-2 font-medium text-blue-600">${l.hum}%</td>
+      <td class="py-2 px-2 ${l.led1=='BẬT'?'text-green-600':'text-gray-500'}">${l.led1}</td>
+      <td class="py-2 px-2 ${l.led2=='BẬT'?'text-orange-600':'text-gray-500'}">${l.led2}</td>
+    </table>
+  `).join('');
+}
+
+// ===== ĐIỀU KHIỂN CHẾ ĐỘ =====
+function setMode(m, shouldPublish = true) {
+  auto = (m === 'auto');
+  
+  // Cập nhật giao diện nút
+  document.getElementById('autoBtn').className = auto ? 'flex-1 py-2 rounded-lg font-semibold text-sm bg-green-600 text-white' : 'flex-1 py-2 rounded-lg font-semibold text-sm bg-gray-600 text-white';
+  document.getElementById('manualBtn').className = !auto ? 'flex-1 py-2 rounded-lg font-semibold text-sm bg-green-600 text-white' : 'flex-1 py-2 rounded-lg font-semibold text-sm bg-gray-600 text-white';
+  
+  // Bật/tắt nút điều khiển LED
+  const btns = ['led1On', 'led1Off', 'led2On', 'led2Off'];
+  btns.forEach(id => document.getElementById(id).disabled = auto);
+  
+  // Gửi lệnh MQTT (chỉ gửi nếu người dùng click, không gửi khi mới load trang)
+  if (shouldPublish) {
+    sendMQTT('mode', m);
+    console.log(`Chuyển sang chế độ: ${auto ? 'TỰ ĐỘNG' : 'THỦ CÔNG'}`);
+  }
+}
+
+// ===== ĐIỀU KHIỂN LED =====
+function ledOn(led) {
+  if (auto) return;
+  
+  // 1. Kiểm tra trạng thái: Nếu đang TẮT thì mới gửi lệnh đảo trạng thái (thành BẬT)
+  const currentState = (led === 'temp') ? led2State : led1State;
+  if (!currentState) {
+    sendMQTT('led', led);
+  }
+  
+  // 2. Cập nhật UI ngay lập tức (Optimistic UI)
+  if (led === 'temp') led2State = true;
+  else led1State = true;
+  updateLEDDisplay();
+  
+  // 3. Khóa cập nhật từ API trong 3 giây
+  isCommanding = true;
+  clearTimeout(commandTimeout);
+  commandTimeout = setTimeout(() => { isCommanding = false; }, 3000);
+}
+
+function ledOff(led) {
+  if (auto) return;
+  
+  // 1. Kiểm tra trạng thái: Nếu đang BẬT thì mới gửi lệnh đảo trạng thái (thành TẮT)
+  const currentState = (led === 'temp') ? led2State : led1State;
+  if (currentState) {
+    sendMQTT('led', led);
+  }
+  
+  // 2. Cập nhật UI ngay lập tức
+  if (led === 'temp') led2State = false;
+  else led1State = false;
+  updateLEDDisplay();
+  
+  // 3. Khóa cập nhật
+  isCommanding = true;
+  clearTimeout(commandTimeout);
+  commandTimeout = setTimeout(() => { isCommanding = false; }, 3000);
+}
+
+// ===== XUẤT CSV =====
+function expCSV() { 
+  if(!logs.length) return alert('Chưa có dữ liệu!'); 
+  let csv = '\uFEFFThời gian,Nhiệt độ,Độ ẩm,LED Độ ẩm,LED Nhiệt độ\n' + 
+    logs.map(l => `"${l.time}",${l.temp},${l.hum},"${l.led1}","${l.led2}"`).join('\n'); 
+  let a = document.createElement('a'); 
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'})); 
+  a.download = `dht11_${Date.now()}.csv`; 
+  a.click(); 
+}
+
+// ===== XÓA LOG =====
+function clearLog() { 
+  logs = []; 
+  document.getElementById('logBody').innerHTML = ''; 
+}
+
+// ===== KHỞI TẠO =====
+function init() {
+  initCharts();
+  connectMQTT();
+  fetchData();
+  setInterval(fetchData, 2000);
+  setMode('auto', false); // Khởi tạo giao diện ở chế độ tự động, không gửi lệnh MQTT
+}
+
+// Chạy khi trang load
+init();
+</script>
+</body>
+</html>
