@@ -12,9 +12,9 @@ start "Express API" node api.js
 echo Dang doi backend khoi dong...
 timeout /t 3 > nul
 
-:: mở web như cũ (file://)
+:: mở web thông qua server thay vì (file://)
 echo Dang mo giao dien nguoi dung...
-start "" "%~dp0arduino_ide\code_phan_mem\HTML\index.html"
+start http://localhost:3000
 
 echo Tat ca cac dich vu da duoc khoi dong!
 pause

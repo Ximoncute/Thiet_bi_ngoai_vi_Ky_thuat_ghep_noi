@@ -29,5 +29,12 @@ app.get('/api/latest', async (req, res) => {
   res.json(data)
 })
 
+// ===== SERVE FRONTEND =====
+const path = require('path');
+// Phục vụ file HTML tĩnh
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../arduino_ide/code_phan_mem/HTML/index.html'));
+});
+
 // ===== START =====
 app.listen(3000, () => console.log('API running at http://localhost:3000'))
